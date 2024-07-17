@@ -57,7 +57,6 @@ impl Protocol {
             std::thread::sleep(std::time::Duration::from_secs(60 * 60));
             protocol_clone.republish();
         });
-
         protocol
     }
 

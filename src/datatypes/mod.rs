@@ -1,2 +1,2 @@
-pub mod Comment;
-pub mod Post;
+pub mod requests;
+pub mod message;
