@@ -96,11 +96,6 @@ impl Rpc {
                     );
                 }
 
-                if decoded.dst != rpc.node.get_addr() {
-                    eprintln!("[WARNING] Rpc::open --> Destination address doesn't match node address, ignoring");
-                    continue;
-                }
-
                 match decoded.msg {
                     Message::Abort => {
                         break;

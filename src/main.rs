@@ -76,7 +76,6 @@ async fn retrieve_data(
 
 async fn run_discovery_loop(args: FindNodesArgs, discv5: Discv5, interface: Arc<Protocol>) {
     let mut event_stream = discv5.event_stream().await.unwrap();
-    let check_evs = args.events;
 
     // construct a 30 second interval to search for new peers.
     let mut query_interval = tokio::time::interval(Duration::from_secs(30));
@@ -84,11 +83,11 @@ async fn run_discovery_loop(args: FindNodesArgs, discv5: Discv5, interface: Arc<
     //Implement logic to lookup new nodes and managing our DHT accordingly
     loop {
         tokio::select! {
+            _ = query_interval.tick() => {
+                // execute a FINDNODE query every 30 seconds to register new nodes and update routing table
+                lookup_nodes(&discv5).await;
+            }
             Some(discv5_ev) = event_stream.recv() => {
-                // consume the events from disc
-                if !check_evs {
-                    continue;
-                }
                 match discv5_ev {
                     Event::Discovered(enr) => {
                         //Derive ip address and port from enr as well as node ID
@@ -96,7 +95,7 @@ async fn run_discovery_loop(args: FindNodesArgs, discv5: Discv5, interface: Arc<
                         //Pinging new discovered node to store it in our dht
                         let enr_info = derive_info(&enr);
                         if let Some(ip) = enr_info.udp4{
-                            let node = Node::new(ip.ip().to_string(), ip.port());
+                            let node = Node::new(ip.ip().to_string(), ip.port() + 1);
                             let res = interface.ping(node);
                             if res{
                                 info!("Node stored under our DHT successfully");
@@ -114,10 +113,7 @@ async fn run_discovery_loop(args: FindNodesArgs, discv5: Discv5, interface: Arc<
                     _ => {}
                 };
             }
-            _ = query_interval.tick() => {
-                // execute a FINDNODE query every 30 seconds to register new nodes and update routing table
-                lookup_nodes(&discv5).await;
-            }
+
         }
     }
 }
