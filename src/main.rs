@@ -60,7 +60,7 @@ async fn retrieve_data(
     }
 }
 
-async fn run_discovery_loop(args: FindNodesArgs, discv5: Discv5, interface: Arc<Protocol>) {
+async fn run_discovery_loop(discv5: Discv5, interface: Arc<Protocol>) {
     let mut event_stream = discv5.event_stream().await.unwrap();
 
     // construct a 30 second interval to search for new peers.
@@ -178,7 +178,7 @@ async fn main() -> std::io::Result<()> {
 
     // Clone the Arc for use in the discovery loop on a separate thread for shared state
     let dht_protocol_for_loop = dht_protocol.clone();
-    tokio::spawn(run_discovery_loop(args, discv5, dht_protocol_for_loop));
+    tokio::spawn(run_discovery_loop( discv5, dht_protocol_for_loop));
 
     //Exposing external api to interact with the dht
     HttpServer::new(move || {
