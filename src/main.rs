@@ -53,8 +53,12 @@ async fn store_data(
     data: web::Json<StoreRequest>,
     dht: web::Data<Arc<Protocol>>,
 ) -> impl Responder {
-    info!("Received store request");
-    dht.put(data.key.clone(), data.value.clone());
+    let new_store = StoreRequest {
+        key: data.key.clone(),
+        value: data.value.clone()
+    };
+    info!("Received store request {} {}", new_store.key, new_store.value);
+    dht.put(new_store.key, new_store.value);
     HttpResponse::Ok().json("Data stored successfully")
 }
 
