@@ -1,19 +1,5 @@
-//! Demonstrates how to run a basic Discovery v5 Service.
-//!
-//! This example creates a discv5 service which searches for peers every 30 seconds. On creation,
-//! the local ENR created for this service is displayed in base64. This can be used to allow other
-//! instances to connect and join the network. The service can be stopped by pressing Ctrl-C.
-//!
-//! To add peers to the network, create multiple instances of this service adding the ENR of a
-//! participating node in the command line. The nodes should discover each other over a period of
-//! time. (It is probabilistic that nodes to find each other on any given query).
-//!
-//! See the example's help with
-//! ```
-//! sh cargo run --example find_nodes -- --help
-//! ```
-//!
-//! For a simple CLI discovery service see [discv5-cli](https://github.com/AgeManning/discv5-cli)
+//cargo run -- --enr-ip4 [ip address here with no brackets] --port [port with no brackets]
+//Make sure to add the enr of a bootsrap node. The ENR is printed at runtime 
 
 //Discv5 packages
 mod discovery;
