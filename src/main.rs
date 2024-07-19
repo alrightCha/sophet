@@ -6,8 +6,9 @@ mod discovery;
 use discovery::args::parse_args;
 use discovery::bootstrap::{boostrap, get_bootstrap_if_exists};
 use discovery::enr_builder::build_enr;
-use discovery::service::{derive_info, lookup_nodes, start_discv5_service};
-use discovery::{FindNodesArgs, SocketKind};
+use discovery::service::{derive_info, lookup_nodes, start_discv5_service, derive_id_from_enr, talk};
+use discovery::SocketKind;
+use discv5::enr::k256::pkcs8::der::Encode;
 use discv5::{enr::CombinedKey, ConfigBuilder, Discv5, Event, ListenConfig};
 
 //DHT packages
@@ -72,6 +73,18 @@ async fn run_discovery_loop(discv5: Discv5, interface: Arc<Protocol>) {
             _ = query_interval.tick() => {
                 // execute a FINDNODE query every 30 seconds to register new nodes and update routing table
                 lookup_nodes(&discv5).await;
+                
+                let protocol = "peer_size".as_bytes();
+                //Finding all node Ids known to the current disc 
+                let ids = discv5.table_entries_id();
+                for node in ids{
+                    //Finding known enr from the node ids 
+                    let enr = discv5.find_enr(&node);
+                    //If enr is found, perform a talk request with it 
+                    if let Some(found_enr) = enr {
+                        let _ = talk(&discv5, &interface, &found_enr, protocol).await;
+                    }
+                }
             }
             Some(discv5_ev) = event_stream.recv() => {
                 match discv5_ev {
@@ -82,7 +95,14 @@ async fn run_discovery_loop(discv5: Discv5, interface: Arc<Protocol>) {
                         let enr_info = derive_info(&enr);
                         if let Some(ip) = enr_info.udp4{
                             let node = Node::new(ip.ip().to_string(), ip.port() + 1);
+                            //Storing the new node by pinging it
                             let res = interface.ping(node);
+                            //Mapping the nodeId to the current ENR for later use in case ENR is updated
+                            let id = derive_id_from_enr(&enr);
+                            if let Some(node_id) = id {
+                                interface.put(node_id.to_string(), 0.to_string()); //Initializing known peers to 0 
+                                info!("ENR mapped to node ID successfully");
+                            }
                             if res{
                                 info!("Node stored under our DHT successfully");
                             }else{
@@ -94,8 +114,48 @@ async fn run_discovery_loop(discv5: Discv5, interface: Arc<Protocol>) {
                     },
                     Event::NodeInserted { node_id, replaced: _ } => info!(%node_id, "Node inserted"), //derive
                     Event::SessionEstablished(enr, _) => info!(%enr, "Session established"),
-                    Event::SocketUpdated(addr) => info!(%addr, "Socket updated"), //Find key in dht and update addr + port
-                    Event::TalkRequest(_) => info!("Talk request received"), // Check if dht still has storage
+                    Event::SocketUpdated(addr) => {
+                        info!(%addr, "Socket updated"); //Find key in dht and update addr + port
+                        let ip = addr.ip().to_string();
+                        let port = addr.port();
+                        let node = Node::new(ip, port);
+                        interface.ping(node); //Pinging node to add it to dht 
+                        //Old node will automatically be placed at the bottom of the routing table queue and be left out because of being inactive 
+                    },
+                    //Performing a talk request to keep up to date information on the connected peers from a node and storing it under our dht 
+                    Event::TalkRequest(talk_request) => {
+                        if talk_request.protocol() == "peer_size".as_bytes() {
+                            let request_body = talk_request.body();
+
+                            // Assuming the request_body contains both node_id and ENR separated by a delimiter.
+                            // For simplicity, let's assume they are separated by a "|".
+                            let body_str = match std::str::from_utf8(request_body) {
+                                Ok(v) => v,
+                                Err(_) => {
+                                    let _ = talk_request.respond(vec![]);
+                                    return;
+                                }
+                            };
+                            let parts: Vec<&str> = body_str.split('|').collect();
+                            if parts.len() != 2 {
+                                let _ = talk_request.respond(vec![]);
+                                return;
+                            }
+                    
+                            let node_id_str = parts[0].to_string();
+                            let known_peers_remote = parts[1].to_string();
+                            info!("talk request received from peer {}", node_id_str);
+                            interface.put(node_id_str, known_peers_remote); // Storing known peer size to node ID 
+
+                            let known_peers = discv5.connected_peers();
+                            let self_id = discv5.local_enr().id();
+                            if let Some(enr_id) = self_id {
+                                let response = enr_id + "|" + &known_peers.to_string();
+                                let _ = talk_request.respond(response.as_bytes().to_vec());
+                            }
+                        }
+                    }
+                    
                     _ => {}
                 };
             }
@@ -103,6 +163,7 @@ async fn run_discovery_loop(discv5: Discv5, interface: Arc<Protocol>) {
         }
     }
 }
+
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
